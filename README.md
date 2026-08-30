@@ -1,3 +1,16 @@
+<!-- Forked by PK-Fat as AIchat2MD, adding ChatGPT support -->
+
+
+
+
+
+
+
+
+
+
+
+
 # Claude Chat Exporter
 
 A **privacy-first** tool that exports your Claude.ai conversations to clean Markdown. It runs entirely in your browser — no server of its own, nothing uploaded, no tracking.
@@ -366,3 +379,4 @@ This script is not officially associated with Anthropic or Claude AI. It is a co
 **Perfect Exports. Every Element. Every Time.**
 
 _Made for the Claude community — if this helps you, [give it a ⭐](https://github.com/agarwalvishal/claude-chat-exporter) or [sponsor it](https://github.com/sponsors/agarwalvishal)._
+
