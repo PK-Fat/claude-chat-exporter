@@ -1,382 +1,129 @@
-<!-- Forked by PK-Fat as AIchat2MD, adding ChatGPT support -->
+2q1# AIchat2MD
+
+Shoutouts to [agarwalvishal](https://github.com/agarwalvishal). This project is forked from his [claude-chat-exporter](https://github.com/agarwalvishal/claude-chat-exporter) (MIT) which has been a godsend for my notes.
+
+One click, no menus: export the Claude or ChatGPT conversation you're viewing straight to a clean Markdown file, built for dropping into an **Obsidian** vault or a **RAG** pipeline.
+ — sections below marked 🟢 are that original project's work, still accurate for how the Claude side of this extension works. Everything else was added for this fork.
 
 
+> Sections marked 🟢 are substantially the original project's writing/design, still accurate here. Unmarked sections are new for AIchat2MD.
 
+## Install
 
-
-
-
-
-
-
-
-
-# Claude Chat Exporter
-
-A **privacy-first** tool that exports your Claude.ai conversations to clean Markdown. It runs entirely in your browser — no server of its own, nothing uploaded, no tracking.
-
-Everything comes through — tables, math and code at full fidelity, plus artifacts, created files, charts and attachments — all read directly from Claude's own API. Exports carry YAML frontmatter with one heading per turn, so they drop straight into an **Obsidian** vault or a **RAG** pipeline.
-
-<p align="center">
-  <a href="https://agarwalvishal.github.io/claude-chat-exporter/">
-    <img src="https://img.shields.io/badge/▶%20Install-One--Click%20Bookmarklet-d97757?style=for-the-badge" alt="Install the one-click bookmarklet" />
-  </a>
-</p>
-
-<p align="center"><sub>
-Claude's internal API changes without notice, and someone has to keep up.<br>
-<a href="https://github.com/sponsors/agarwalvishal">Sponsoring this project</a> is what keeps it maintained. <a href="#support-this-project">More →</a>
-</sub></p>
-
-## ⚡ One-Click Export (Bookmarklet)
-
-The easiest way — no console, no copy-paste, works for non-developers too:
-
-1. Open the **[one-click install page »](https://agarwalvishal.github.io/claude-chat-exporter/)**
-2. **Drag** the “📥 Claude Export” button onto your browser's bookmarks bar.
-3. Open any conversation on [claude.ai](https://claude.ai) and **click the bookmark** — your `.md` file downloads automatically.
-
-The bookmarklet is just this repository's open-source script wrapped into a link. It runs entirely in your browser — the tool has **no server of its own**, the only network call for your conversation is to Claude's own backend, and it stores nothing. The bookmarklet also checks for updates and shows an “update available” notice when a newer version is published, so you can re-drag to grab the latest.
-
-Prefer to run it yourself? See [Usage (Console)](#usage-console) below.
+1. Download the latest release, or clone this repo and run `web-ext build`
+2. Firefox: `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select `manifest.json`
+3. Open a Claude or ChatGPT conversation, click the toolbar icon (or the sidebar panel, if you've switched modes in **Settings**) — a native Save As dialog pops up with your `.md` file ready to go
 
 ## Features
 
-- **🎯 Perfect Markdown Fidelity** - Reads Claude's own source markdown from its API — no HTML parsing, no conversion. The result is a clean, faithful document that reads beautifully on its own
-- **📈 Complete Element Support** - Tables, math, code, lists, complex formatting — everything, byte-perfect
-- **🧩 Artifacts, Files & Widgets** - Artifacts (their final version), created files, and charts/diagrams are exported as clean fenced code blocks, in place and in order
-- **📎 Attachments** - Uploaded images embedded, documents linked, and text files inlined — exports stay self-contained
-- **🗂️ Obsidian- & RAG-ready** - YAML frontmatter + one heading per turn means it drops straight into an Obsidian vault or an AI/RAG pipeline — not just a plain dump ([more below](#obsidian--rag-ready))
-- **📊 Complete & In Order** - Every message on the current branch, correctly ordered — even in long conversations that only partly render on screen
-- **🕐 Timestamps** - Per-message timestamps for both human and Claude turns, from Claude's API
-- **🔒 Private by Design** - No servers, no tracking; runs in your browser and only ever calls Claude's own backend, over your existing session
-- **📁 Smart Filename Generation** - Uses the actual conversation title from the API
-- **🛡️ Robust to UI Changes** - Reads a stable data contract, not fragile CSS selectors
+- **One-click export** — toolbar button or sidebar panel (your choice, in settings), no menus to navigate
+- **Claude and ChatGPT** — both read straight from the service's own internal API, not the rendered page
+- 🟢 **Perfect Markdown fidelity (Claude)** — reads Claude's own source markdown from its API — no HTML parsing, no conversion
+- 🟢 **Complete element support (Claude)** — tables, math, code, lists, artifacts, created files, charts, and attachments, all in place and in order
+- 🟢 **Complete & in order** — every message on the current branch, correctly ordered, even in long conversations that only partly render on screen
+- **Obsidian-ready frontmatter** — `title`, `agent`, `exported` date, and `source` in every file's YAML header
+- 🟢 **Private by design** — no servers of its own; runs entirely in your browser and only ever calls the AI service's own backend, over your existing session
 
-## How It Works
+## How it works
 
-It's a single fetch, transformed into markdown:
+### 🟢 Claude
 
-1. **Fetch** - Calls Claude's internal API for the current conversation (`/api/organizations/{orgId}/chat_conversations/{conversationId}`), authenticated by your existing session cookie. The response contains the title and every message.
-2. **Order** - Reconstructs the conversation's current branch by walking the message tree from the current leaf up its parent chain (so a regenerated response exports exactly what's on screen).
-3. **Extract** - Walks each message's content blocks in order: `text` blocks (Claude's original source markdown) plus special elements — artifacts, created files, and charts/diagrams/widgets — rendered in position; hidden/system messages are skipped.
-4. **Output** - Writes a single markdown file: YAML frontmatter (title, source, model, export date) followed by one `#`-level header per turn (`# Human — …` / `# Claude — …`) so Claude's own `##`/`###` content nests correctly beneath it. The result is a clean, faithful document that reads perfectly on its own — and the same structure makes it drop-in ready for [Obsidian & AI/RAG pipelines](#obsidian--rag-ready).
+1. **Fetch** — calls Claude's internal API for the current conversation (`/api/organizations/{orgId}/chat_conversations/{conversationId}`), authenticated by your existing session cookie
+2. **Order** — reconstructs the conversation's current branch by walking the message tree from the current leaf up its parent chain, so a regenerated response exports exactly what's on screen
+3. **Extract** — walks each message's content blocks in order: text blocks (Claude's original source markdown) plus artifacts, created files, and widgets, rendered in position
+4. **Output** — writes a single markdown file: YAML frontmatter followed by one `#`-level header per turn
 
-> **Branches / regenerated responses:** the export follows the branch Claude is currently showing — its *active leaf* — not necessarily the newest one. If you've regenerated a response and want to export a **different** branch, switch to that version in Claude first (the `‹ ›` arrows on a regenerated message), then run the exporter — the switch takes effect immediately, no page reload needed.
+> **Branches / regenerated responses:** the export follows whichever branch is currently on screen — Claude's *active leaf* — not necessarily the newest one. Switch branches in Claude first (the `‹ ›` arrows on a regenerated message) if you want a different one.
 
-### Why read the API instead of the page?
+### ChatGPT
 
-Claude *generates* markdown, and the page only ever holds a small window of a long conversation in the DOM. Copy buttons hand over that markdown faithfully — but the DOM was still needed to *find* each message, work out who said it, and read the conversation title, and each of those is a CSS selector waiting to break. Reading the API gets **every message's source markdown directly**, along with the elements no copy button can reach.
+Same approach, adapted to ChatGPT's own API:
+-
+1. **Session** — reads an access token from ChatGPT's `/api/auth/session` endpoint
+2. **Fetch** — calls `/backend-api/conversation/{id}` with that token, which returns the full conversation as a node graph rather than a flat list
+3. **Order** — walks from `current_node` back to the root via each node's `parent` link, then reverses — same branch-following logic as the Claude side
+4. **Output** — same frontmatter + per-turn header format
+
+### 🟢 Why read the API instead of the page?
 
 ```
 ❌ Driving the page (DOM + copy buttons):
 - Only sees the messages currently rendered → long chats export partially
-- Pairs human and Claude turns by index → a regenerated branch can misalign them
+- Pairs turns by index → a regenerated branch can misalign them
 - Reaches only what has a copy button → no artifacts, files or attachments
 - Couples to CSS selectors that change constantly → a maintenance nightmare
 
-✅ Reading Claude's API:
+✅ Reading the service's own API:
 - Complete conversation, always, in the order it appears on screen
-- Claude's original source markdown → perfect fidelity, zero conversion
-- Artifacts, created files, widgets and attachments come along too
+- Original source markdown → perfect fidelity, zero conversion
 - A stable data contract instead of brittle selectors
 ```
 
-## Usage (Console)
+## File output
 
-Prefer running it yourself, or want to tweak the script? Run it straight from the browser console:
+- **Filename**: `[Chat title] (MM.DD.YY).md` — date is when you exported, not when the chat happened, so re-exporting later doesn't overwrite the original
+- **Frontmatter**: `title`, `agent` (Claude/ChatGPT), `exported`, `source`, and `model` when available
+- 🟢 **Content**: complete conversation, in order, with per-message timestamps
+- 🟢 **Encoding**: UTF-8 with standard line endings
 
-1. Open your conversation with Claude in your web browser.
-2. Open the browser's developer console:
-   - Chrome/Edge: Press F12 or Ctrl+Shift+J (Windows/Linux) or Cmd+Option+J (Mac)
-   - Firefox: Press F12 or Ctrl+Shift+K (Windows/Linux) or Cmd+Option+K (Mac)
-   - Safari: Enable the Develop menu in preferences, then press Cmd+Option+C
-3. Copy the entire script in the file `claude-chat-exporter.js` and paste it into the console.
-   - **First time?** Chrome, Edge, and Firefox block pasting into the console as a safety measure. If you see that warning, type `allow pasting`, press Enter, then paste the script again. (Only needed once per browser profile — the one-click bookmarklet skips this entirely.)
-4. Press Enter to run the script.
-5. The script shows a small status indicator and automatically downloads a file named `{conversation-title}.md` (`conversation-title` being the Claude conversation title from the API).
+```yaml
+---
+title: "Sorting algorithm comparison"
+agent: "Claude"
+exported: "2026-08-30"
+source: "https://claude.ai/chat/…"
+model: "claude-opus-5"
+---
 
-## Complete Element Support
+# Human — Aug 30, 2026, 10:30 AM
+
+Can you compare the common sorting algorithms in a table?
+
+# Claude — Aug 30, 2026, 10:31 AM
+
+| Algorithm  | Best       | Average    | Worst      |
+| ---------- | ---------- | ---------- | ---------- |
+| Merge Sort | O(n log n) | O(n log n) | O(n log n) |
+```
+
+## 🟢 Complete element support (Claude)
 
 Because this reads Claude's source markdown directly, it automatically handles:
 
-- ✅ **Tables** - Perfect markdown table formatting
-- ✅ **Math** - LaTeX and inline math notation
-- ✅ **Code blocks** - With proper language detection
-- ✅ **Lists** - Nested lists with correct formatting
-- ✅ **Links** - All link types and formats
-- ✅ **Formatting** - Bold, italic, strikethrough, etc.
-- ✅ **Blockquotes** - Proper quote formatting
-- ✅ **Headers** - All heading levels
-- ✅ **Artifacts** - Exported as a labelled fenced code block (final version), in place
-- ✅ **Created files** - `create_file` outputs, as a fenced code block with the filename
-- ✅ **Charts / diagrams / widgets** - `visualize` widgets exported as code (mermaid renders natively in Obsidian)
-- ✅ **Attachments** - Images embedded, documents linked, text files inlined
-- ✅ **Future elements** - Automatically supported
+- Tables, math (LaTeX), code blocks with language detection, nested lists, links, formatting, blockquotes, all heading levels
+- Artifacts (final version), created files, and charts/diagrams/widgets, as labelled fenced code blocks
 
-## File Output
+**ChatGPT** currently handles plain text and code-interpreter output; image generations and other rich content types aren't inlined yet.
 
-- **Filename**: `{conversation-title}.md` (from the API title, else `claude_conversation`)
-- **Format**: YAML frontmatter + `#`-per-turn headers; bodies are Claude's own source markdown
-- **Content**: Complete conversation, in order, with per-message timestamps and inlined text-attachment content
-- **Encoding**: UTF-8 with standard line endings
+## Settings
 
-## Example Output
+Toolbar or sidebar — pick one in the extension's options page (`about:addons` → AIchat2MD → Preferences). Toolbar mode exports the instant you click the icon; sidebar mode opens a small panel with its own Export button.
 
-YAML frontmatter carries document metadata; each turn is an `#` header so Claude's own `##`/`###` headings nest beneath it. Attachments render above the text (text attachments are blockquoted, label and all); artifacts, created files, and widgets render in place as labelled fenced code blocks:
+## 🟢 Privacy & security
 
-````markdown
----
-title: "Sorting algorithm comparison"
-source: "https://claude.ai/chat/…"
-model: "claude-opus-4-…"
-exported: 2026-02-23
----
-
-# Human — Feb 23, 2026, 10:30 AM
-
-> **Attachment: requirements.md · text/markdown · 1.2 KB**
->
-> # Requirements
-> Compare the common sorting algorithms in a table.
-
-Can you create a comparison table, and a small React widget to visualise it?
-
-# Claude — Feb 23, 2026, 10:30 AM
-
-Here's the comparison and an interactive sorter:
-
-| Algorithm  | Best       | Average    | Worst      | Stable |
-| ---------- | ---------- | ---------- | ---------- | ------ |
-| Merge Sort | O(n log n) | O(n log n) | O(n log n) | Yes    |
-
-**Artifact: Sorting Visualiser · React**
-
-```jsx
-export default function Sorter() {
-  return <div>…</div>;
-}
-```
-
-# Human — Feb 23, 2026, 10:32 AM
-
-Now make it animated —
-
-# Claude — Feb 23, 2026, 10:32 AM
-
-Sure, adding an animation loop…
-
-> **Interrupted:** this response was stopped before Claude finished.
-````
-
-(The artifact shows its **final** version once; the `Interrupted` note appears only when a response was stopped. Everything is the source markdown Claude wrote — tables, code, and all — byte-for-byte.)
-
-## Obsidian & RAG ready
-
-First and foremost the export is a **clean, faithful Markdown document** — exactly the markdown Claude wrote, so it reads perfectly on its own. But unlike a plain dump, its structure is deliberately built to drop straight into your knowledge tools:
-
-- **YAML frontmatter** (`title`, `source`, `model`, `exported`) → Obsidian reads it as note **properties**; a RAG pipeline attaches it as per-document **metadata** on every chunk.
-- **One `#` heading per turn** → each Human/Claude turn is a clean top-level section, so heading-aware **RAG chunkers split neatly by turn**, and Claude's own `##`/`###` content nests *beneath* the turn instead of colliding with it.
-- **Blockquoted attachment text** → an attached doc's headings stay quoted, keeping your outline intact while the content stays fully searchable.
-- **Mermaid artifacts** render as **live diagrams** in Obsidian.
-- **Emoji-free body** → clean, consistent tokens for embeddings and search.
-
-Drop the `.md` into your vault or ingestion pipeline and it just works — no cleanup step. That structure is a real edge over exporters that hand you an unstructured wall of text.
-
-## Maintenance
-
-The script **reads nothing from Claude's rendered page** — no CSS selectors at all — and the export is a single API read, so there's nothing to configure. The one point of coupling is the shape of Claude's API response, handled in `getOrderedMessages()` / `renderToolUse()`: if Claude ever changes that response (or adds a new tool type), those functions are where to update, and the expected shape is documented in [`CLAUDE.md`](CLAUDE.md).
-
-## Browser Compatibility
-
-- ✅ Chrome/Chromium (recommended)
-- ✅ Firefox
-- ✅ Safari
-- ✅ Edge
-
-_Works in any modern browser while you're logged in to claude.ai._
-
-## Troubleshooting
-
-### Export Status Indicators
-
-The script shows a small status box while it runs:
-
-- `Fetching conversation…` - Reading the conversation from Claude's API
-- `✅ Exported N messages: filename.md` - Success!
-- `✅ Exported N messages (1 interrupted response): filename.md` - Success. A response was stopped before Claude finished, so there was never any more of it to export — **your file is complete**. The message is flagged inline so the short answer isn't mistaken for a bug
-- `⚠️ Exported N messages (1 message flagged truncated): filename.md` - Claude's API marked a message `truncated`. It's flagged inline; compare that message against the page if you want to be sure nothing is missing
-- `⚠️ Exported N messages (1 warning — see console): filename.md` - The file downloaded, but something didn't reconstruct cleanly — usually an artifact whose edit couldn't be applied to its original text, occasionally an unexpected value from the API. Each warning is logged to the console as it happens
-- `Error: …` - The export didn't happen, and the box itself says why — e.g. `Open a specific Claude conversation first…` or `your session may have expired; reload and sign in`. The console logs the full error too
-
-### Common Issues
-
-**Could not fetch conversation data**
-
-- Make sure you're logged in to claude.ai and the conversation URL is open
-- Reload the page and run again
-
-**No messages found**
-
-- The conversation may be empty, or still opening — reload and retry
-
-You do **not** need to scroll the conversation first — the whole thread is read from the API regardless of what's rendered on screen.
-
-## Technical Architecture
-
-The whole script is one closure, `setupClaudeExporter()`, running a small pipeline: `fetchConversationData()` → `getOrderedMessages()` → `buildMarkdown()` → download.
-
-### The API response
-
-```
-GET /api/organizations/{orgId}/chat_conversations/{conversationId}?tree=true&rendering_mode=messages&render_all_tools=true
-```
-
-`orgId` comes from the `lastActiveOrg` cookie, `conversationId` from the URL path; the request is same-origin and uses your session cookie. The relevant response shape:
-
-```jsonc
-{
-  "name": "…",                       // conversation title
-  "model": "…",                      // e.g. claude-opus-5 (frontmatter)
-  "current_leaf_message_uuid": "…",  // tip of the current branch
-  "chat_messages": [{
-    "uuid": "…", "parent_message_uuid": "…",  // tree links
-    "index": 0,                               // fallback ordering
-    "sender": "human" | "assistant",
-    "created_at": "…",                        // ISO timestamp
-    "truncated": false,
-    "content": [{ "type": "text" | "thinking" | "tool_use" | "tool_result", "text": "…" }],
-    "files": [ /* uploaded images/docs */ ], "attachments": [ /* text extractions */ ]
-  }]
-}
-```
-
-`tool_use` blocks carry `name` + `input`; the exporter renders `artifacts`, `create_file`,
-and `visualize:show_widget` from their `input`. The full field-level contract (files,
-attachments, and each tool's `input` shape) is documented in [`CLAUDE.md`](CLAUDE.md).
-
-### Ordering (current branch)
-
-Messages form a tree. `getOrderedMessages()` follows the branch actually on screen by walking from `current_leaf_message_uuid` up the `parent_message_uuid` chain and reversing, falling back to sorting by `index`:
-
-```javascript
-let cur = byUuid.get(data.current_leaf_message_uuid);
-while (cur) { path.push(cur); cur = byUuid.get(cur.parent_message_uuid); }
-path.reverse();
-```
-
-### Content extraction
-
-Each message's `content` interleaves typed blocks. We walk them **in order**, emitting `text` blocks plus content-bearing `tool_use` blocks (via `renderToolUse`), so text and special elements stay interleaved as written; `thinking` and `tool_result` blocks are skipped, as are messages that end up empty:
-
-```javascript
-const parts = [];
-for (const block of (m.content || [])) {
-  if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text.trim());
-  else if (block.type === 'tool_use') parts.push(renderToolUse(block, artifacts));
-}
-```
-
-`renderToolUse` renders **artifacts**, **created files** (`create_file`), and **charts/diagrams/widgets** (`visualize:show_widget`) as titled fenced code blocks with a kind label (`Artifact:` / `File:` / `Widget:`; language mapped from type/extension; `mermaid` renders natively in Obsidian). Artifacts are reconstructed to their final version (folding create + edits) and rendered once, at their last edit. **Every other tool** — web search, bash, file view/edit, display widgets — is skipped.
-
-This is Claude's original source markdown, so tables/math/code are byte-perfect with no conversion.
-
-## Advantages Over Other Methods
-
-| Method                        | Accuracy | Completeness            | Maintenance |
-| ----------------------------- | -------- | ----------------------- | ----------- |
-| **This Script (API)**         | 100%     | Whole conversation      | Low         |
-| Manual Copy/Paste             | 100%     | Whatever you scroll to  | N/A         |
-| DOM scraping / copy buttons   | ~high    | Only rendered messages  | High        |
-| HTML → markdown parsers       | ~80%     | Only rendered messages  | High        |
-
-## Privacy & Security
-
-- **No Backend of Its Own** - This tool runs no servers; your conversations are never sent to us or any other party
-- **Runs in Your Browser** - All processing happens locally on your machine
-- **Claude's Own API Only** - The single request reads *your* conversation from Claude's own backend, over your existing session — the same data claude.ai already loads for you
-- **No Data Storage** - Messages are transformed and downloaded immediately; nothing is retained
-
-The bookmarklet additionally fetches its own script and an update check from GitHub — these read public files and send none of your conversation data.
+- No backend of its own — this tool runs no servers; your conversations are never sent to us or any other party
+- All processing happens locally, in your browser
+- The only network calls are to the AI service's own API, over your existing session — the same data the web app already loads for you
+- Nothing is retained — messages are transformed and downloaded immediately
 
 ## Limitations
 
-- **Requires JavaScript** - Must be enabled in browser
-- **Claude Web Only** - Works only on claude.ai web interface, while you're logged in
-- **Undocumented API** - Relies on Claude's internal API; a change to its response shape would require an update (rare, and far less brittle than CSS selectors)
-- **Special elements** - Artifacts (their final version), created files, and charts/diagrams/widgets are exported as fenced code blocks. Not exported: other tool calls (web search, bash, file view/edit), display widgets (maps, recipes, image/place search — their result URLs are ephemeral), and Claude's internal thinking blocks (excluded by design — exploratory reasoning and discarded hypotheses pollute RAG retrieval and the document outline)
-- **Attachments** - Every attachment is represented, above the text: **images** embedded, **documents** (PDF) linked (`document · N pages`), **blobs** (audio, etc.) named, and **text attachments** (.md/.docx/.txt/.html) inlined as a blockquote of their extracted text — so exports stay self-contained and RAG-complete. Not exported: the raw *binary* bytes (image/PDF/audio), and file links are auth-gated claude.ai URLs that load only while signed in to the same account. A portable ZIP that bundles the binary originals is a possible future addition
-
-## Support this project
-
-Thank you for using it — genuinely. This started as a script for my own Claude
-conversations, and it has been lovely watching other people find it useful.
-
-Here is the honest picture of the upkeep. The exporter reads Claude's internal API, which is
-undocumented and unversioned. When it changes, exports break for everyone at once — and
-somebody has to notice, work out what moved, and ship a fix. That has happened several times
-already, and it is most of what maintaining this actually is. Sponsoring is what keeps it
-working, release after release.
-
-The code is MIT and stays that way — every feature stays free, for everyone, permanently.
-
-If this has earned a place in how you work — and exporting tends to become a habit once the
-first conversation lands in your notes — a small monthly sponsorship is what makes the upkeep
-predictable. **If a recurring payment is not for you, a one-off is just as welcome.**
-
-<p align="center">
-  <a href="https://github.com/sponsors/agarwalvishal">
-    <img src="https://img.shields.io/badge/♥%20Sponsor-this%20project-d97757?style=for-the-badge" alt="Sponsor this project" />
-  </a>
-</p>
-
-Sponsors at the **Team** tier and above have their logo at the top of this page, linked to
-their site, for as long as the sponsorship runs. Placement follows the amount, so a custom
-sponsorship counts the same as the matching tier. Individual
-sponsors are listed automatically by GitHub on my profile. Sponsorship covers placement and
-the upkeep it funds — the project's direction stays open to everyone, and ideas and requests
-live in the [issues](../../issues).
-
-### Using this at work?
-
-If Claude conversations end up in your team's knowledge base, documentation, or a RAG
-pipeline, this tool is quietly part of your stack — and keeping it working is worth a line in
-someone's tooling budget.
-
-The **Team** tier puts your logo at the top of this README — the page most people land on,
-usually arriving from a search for exactly this kind of tool. The
-**Company** tier places it first and adds it to the
-[install page](https://agarwalvishal.github.io/claude-chat-exporter/) — the page every user
-passes through to install, and returns to whenever a new version ships.
-
-It is usually an easy ask — forward this to whoever owns that budget.
-
-### Other ways to help
-
-A ⭐ helps nearly as much, as does telling one other person this exists. Most people find
-this tool through a search engine, and every star makes that search work a little better.
+- 🟢 Requires the account you're currently signed into on claude.ai / chatgpt.com
+- 🟢 Relies on each service's internal, undocumented API — a response-shape change would require an update
+- 🟢 **Claude**: other tool calls (web search, bash, file view/edit) and internal thinking blocks aren't exported by design
+- **ChatGPT**: images, DALL·E generations, and other rich content types aren't inlined yet
+- Both only export the currently-selected branch of a conversation, not every regenerated alternative
 
 ## Contributing
 
-Contributions to improve the script or add new features are welcome! Please feel free to submit a pull request or open an issue to discuss potential changes.
-
-This project benefits from:
-
-1. **API Contract Updates** - Help keep `getOrderedMessages()` in sync if Claude's API response changes
-2. **Error Handling** - Improve robustness for edge cases
-3. **Additional Content** - Richer display-widget rendering, or bundling binary attachment/file originals
+Issues and PRs welcome — this is a small personal project, so response time varies.
 
 ## License
 
-This project is open source and available under the [MIT License](LICENSE).
+MIT — see [`LICENSE`](LICENSE). Original work Copyright (c) agarwalvishal; this fork's additions Copyright (c) PK.
+
+The original project is under active, ongoing maintenance to keep pace with Claude's API. If this firefox extension brings you joy [sponsoring it](https://github.com/sponsors/agarwalvishal) is what funds that upkeep, independent of this fork.
 
 ## Disclaimer
 
-This script is not officially associated with Anthropic or Claude AI. It is a community-created tool to enhance the user experience. Use it responsibly and in accordance with Anthropic's terms of service.
-
----
-
-**Perfect Exports. Every Element. Every Time.**
-
-_Made for the Claude community — if this helps you, [give it a ⭐](https://github.com/agarwalvishal/claude-chat-exporter) or [sponsor it](https://github.com/sponsors/agarwalvishal)._
-
+This tool is not officially associated with Anthropic, OpenAI, Claude, or ChatGPT. It's a community-created tool to enhance the user experience. Use it responsibly and in accordance with each service's terms of service.
