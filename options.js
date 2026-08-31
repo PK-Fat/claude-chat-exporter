@@ -8,6 +8,15 @@ const radios = document.querySelectorAll('input[name="uiMode"]');
 
 for (const r of radios) {
   r.addEventListener("change", async () => {
-    if (r.checked) await browser.storage.local.set({ uiMode: r.value });
+    if (!r.checked) return;
+    await browser.storage.local.set({ uiMode: r.value });
+    // The sidebar can stay open on its own (you can toggle it manually via
+    // Firefox's sidebar picker, separate from our toolbar button) — so
+    // switching to toolbar mode should also close it if it's currently open,
+    // rather than leaving a stale panel sitting there.
+    if (r.value === "toolbar") {
+      const isOpen = await browser.sidebarAction.isOpen({});
+      if (isOpen) await browser.sidebarAction.close();
+    }
   });
 }
