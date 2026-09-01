@@ -1,9 +1,0 @@
-.git/
-.github/
-.claude/
-docs/
-CLAUDE.md
-*.zip
-web-ext-artifacts/
-node_modules/
-
