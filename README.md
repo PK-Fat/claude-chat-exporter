@@ -10,9 +10,7 @@ One click, no menus: export the Claude or ChatGPT conversation you're viewing st
 
 ## Install
 
-1. Download the latest release, or clone this repo and run `web-ext build`
-2. Firefox: `about:debugging#/runtime/this-firefox` → **Load Temporary Add-on…** → select `manifest.json`
-3. Open a Claude or ChatGPT conversation, click the toolbar icon (or the sidebar panel, if you've switched modes in **Settings**) — a native Save As dialog pops up with your `.md` file ready to go
+Latest release >>> [AIchat2md v1.0.2](https://github.com/PK-Fat/claude-chat-exporter/releases/tag/v1.0.2)
 
 ## Features
 
