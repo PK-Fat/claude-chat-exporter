@@ -3,6 +3,6 @@ module.exports = {
     "docs/**",
     "docs",
     "CLAUDE.md",
-    "web-ext-config.js",
+    "web-ext-config.cjs",
   ],
 };

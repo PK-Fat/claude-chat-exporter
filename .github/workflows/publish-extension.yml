@@ -1,0 +1,83 @@
+# .github/workflows/publish-extension.yml
+#
+# Builds AIchat2MD on tag push, signs it via Mozilla AMO
+# (listed channel, so point releases also go out to the public AMO
+# store listing), then attaches the *signed* XPI to a GitHub Release.
+#
+# Required repo secrets (Settings > Secrets and variables > Actions):
+#   AMO_JWT_ISSUER  - from https://addons.mozilla.org/developers/addon/api/key/
+#   AMO_JWT_SECRET  - paired secret for the above
+#
+# Trigger: push a tag matching v*.*.* (e.g. v1.2.2) that matches the
+# "version" field in manifest.json exactly.
+
+name: Publish Extension
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  build-sign-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Verify manifest version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          MANIFEST_VERSION=$(node -p "require('./manifest.json').version")
+          if [ "$TAG_VERSION" != "$MANIFEST_VERSION" ]; then
+            echo "Tag ($TAG_VERSION) does not match manifest.json version ($MANIFEST_VERSION)"
+            exit 1
+          fi
+
+      - name: Install web-ext
+        run: npm install --global web-ext
+
+      - name: Lint extension
+        run: web-ext lint --source-dir=.
+
+      - name: Sign with AMO (listed channel)
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.AMO_JWT_ISSUER }}
+          WEB_EXT_API_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          web-ext sign \
+            --source-dir=. \
+            --artifacts-dir=./web-ext-artifacts \
+            --channel=listed \
+            --timeout=900000
+
+      # NOTE: this add-on's existing history is all unlisted/self-distributed
+      # (fast, near-instant signing). This is its FIRST listed submission,
+      # so expect a real review wait here, potentially multiple days per
+      # past experience with this account - don't expect this step to find
+      # a signed XPI right away. Once this first listed version clears
+      # review, later point releases should sign faster.
+
+      - name: Locate signed XPI
+        id: find_xpi
+        run: |
+          XPI_PATH=$(find ./web-ext-artifacts -name "*.xpi" | head -n 1)
+          if [ -z "$XPI_PATH" ]; then
+            echo "No signed XPI found yet - likely still in AMO review. Check the AMO dashboard, then attach it to the GitHub Release manually once approved."
+            exit 0
+          fi
+          echo "xpi_path=$XPI_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        if: steps.find_xpi.outputs.xpi_path != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.find_xpi.outputs.xpi_path }}
+          generate_release_notes: true

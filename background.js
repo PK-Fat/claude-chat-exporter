@@ -6,10 +6,30 @@
 //      which has its own "Export" button that sends a message here.
 // Which mode is active is a single value in browser.storage.local, set from
 // the options page (options.html/options.js).
+//
+// v2.0.0 adds Gemini and DeepSeek alongside Claude/ChatGPT. Claude and
+// ChatGPT read straight from each site's internal REST API — clean,
+// stable, exactly what their own web apps use. Gemini has no such API, so
+// it scrapes the rendered DOM instead, which is inherently more fragile:
+// it'll break if the site ships a UI overhaul. DeepSeek sits in between —
+// it does have an internal API, but the exact response shape here is a
+// best guess (adapted from how similar open-source DeepSeek exporters
+// work), with a DOM-scraping fallback if the API attempt fails.
+//
+// Perplexity was also attempted for v2.0.0 but pulled before release —
+// its native "Export as Markdown" feature turned out to sit behind a
+// Radix UI menu that needed a full pointer-event sequence to trigger
+// programmatically, plus an aria-label collision between the current
+// thread's menu button and every sidebar history row's identically-
+// labeled button. Both were tracked down and fixed, but not fully
+// confirmed working before this release shipped — see perplexity-wip.js
+// for the parked implementation to pick back up later.
 
 const PLATFORMS = [
   { label: "Claude", test: (url) => /^https:\/\/claude\.ai\//.test(url), func: exportClaude },
   { label: "ChatGPT", test: (url) => /^https:\/\/(chatgpt\.com|chat\.openai\.com)\//.test(url), func: exportChatGPT },
+  { label: "Gemini", test: (url) => /^https:\/\/gemini\.google\.com\//.test(url), func: exportGemini },
+  { label: "DeepSeek", test: (url) => /^https:\/\/chat\.deepseek\.com\//.test(url), func: exportDeepSeek },
 ];
 
 const DEFAULT_MODE = "toolbar"; // "toolbar" | "sidebar"
@@ -39,7 +59,7 @@ async function runExport(tab) {
     const url = tab.url || "";
     const platform = PLATFORMS.find((p) => p.test(url));
     if (!platform) {
-      notify("AIchat2MD", "Open a Claude or ChatGPT conversation first.");
+      notify("AIchat2MD", "Open a Claude, ChatGPT, Gemini, or DeepSeek conversation first.");
       return { error: "Not a supported conversation page." };
     }
 
@@ -80,8 +100,9 @@ async function runExport(tab) {
   }
 }
 
-// Filename no longer carries the agent name — that now lives in the
-// frontmatter header instead, so this is just "[Title] (MM.DD.YY).md".
+// v2.0.0: dropped the trailing "(MM.DD.YY)" — agent already lives in the
+// frontmatter, and the date added little once you're pulling exports from
+// five different platforms instead of two. Just "[Title].md" now.
 function buildFilename(rawTitle) {
   const title = (rawTitle || "Untitled").trim() || "Untitled";
   const safeTitle = title
@@ -89,11 +110,7 @@ function buildFilename(rawTitle) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 150);
-  const now = new Date();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const yy = String(now.getFullYear()).slice(-2);
-  return `${safeTitle} (${mm}.${dd}.${yy}).md`;
+  return `${safeTitle}.md`;
 }
 
 function notify(title, message) {
@@ -108,10 +125,12 @@ function notify(title, message) {
 // ---------------------------------------------------------------------------
 // Exporter functions below are injected into the page via
 // scripting.executeScript, so each one must be fully self-contained: no
-// references to anything outside its own body. Each returns
-// { title, markdown } on success, or { error } on failure — never throws,
-// since a thrown error from an injected function surfaces as an opaque
-// "Error in invocation" on the caller side.
+// references to anything outside its own body, including no shared helpers
+// or other top-level functions in this file (a DeepSeek bug early in
+// v2.0.0's testing came from violating exactly this rule — see its comment
+// below). Each returns { title, markdown } on success, or { error } on
+// failure — never throws, since a thrown error from an injected function
+// surfaces as an opaque "Error in invocation" on the caller side.
 // ---------------------------------------------------------------------------
 
 // Adapted from agarwalvishal/claude-chat-exporter (MIT License) — reads the
@@ -319,4 +338,282 @@ async function exportChatGPT() {
   } catch (err) {
     return { error: err.message || String(err) };
   }
+}
+
+// NEW in v2.0.0 — UNVERIFIED against a live session, first draft only.
+// Selector strategy incorporates Gemini's own description of its DOM
+// (asked directly, Sept 2026) on top of the original guesswork: turns are
+// paired inside <conversation-turn>, code renders in a custom <code-block>
+// element (possibly behind an open shadow root — the walker below pierces
+// shadowRoot when present), and long conversations can lazy-unmount
+// off-screen turns, hence the scroll pre-pass. All of that is still a
+// model's self-description, not verified ground truth — if this comes back
+// with "Found 0 conversation turns", open devtools and check what's
+// actually there now.
+async function exportGemini() {
+  try {
+    // Force lazy-loaded/virtualized turns into the DOM before reading, per
+    // Gemini's own note that off-screen turns can unmount on long chats.
+    const originalScroll = window.scrollY;
+    window.scrollTo(0, 0);
+    await new Promise((r) => setTimeout(r, 300));
+    window.scrollTo(0, document.body.scrollHeight);
+    await new Promise((r) => setTimeout(r, 600));
+    window.scrollTo(0, originalScroll);
+    await new Promise((r) => setTimeout(r, 200));
+
+    // Prefer the <conversation-turn> wrapper so user/model pairs stay in
+    // their actual order even if the page ever interleaves them oddly;
+    // fall back to querying the two message types directly if that
+    // wrapper doesn't exist.
+    const turnWrappers = Array.from(document.querySelectorAll("conversation-turn"));
+    const allTurns = turnWrappers.length
+      ? turnWrappers.flatMap((t) => Array.from(t.querySelectorAll("user-query, model-response")))
+      : Array.from(document.querySelectorAll("user-query, model-response"));
+
+    if (!allTurns.length) {
+      return { error: "Found 0 conversation turns — Gemini's page structure has likely changed since this exporter was written. Open devtools and check what element wraps a user/model message pair now." };
+    }
+
+    // Self-contained HTML -> Markdown converter (can't be shared with
+    // other exporters — see the note above on why every injected function
+    // duplicates its own copy of helpers like this instead).
+    // Pierces an open shadowRoot when present, since Gemini's <code-block>
+    // may render its content that way rather than as plain light-DOM children.
+    const htmlToMarkdown = (root) => {
+      const walk = (node) => {
+        if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+        if (node.nodeType !== Node.ELEMENT_NODE) return "";
+        const tag = node.tagName.toLowerCase();
+        // Confirmed via live inspection (Sept 2026): Gemini's follow-up
+        // suggestion chips ("Get a complete DOM-to-Markdown parser script",
+        // etc.) live inside a <elicitations> element, whose own container
+        // carries a "hide-from-message-actions" attribute — Google's own
+        // code marking it as not part of the actual message. Drop it entirely.
+        if (tag === "elicitations" || node.hasAttribute("hide-from-message-actions") || node.classList?.contains("elicitations-container")) {
+          return "";
+        }
+        const childRoot = node.shadowRoot || node;
+        const kids = () => Array.from(childRoot.childNodes).map(walk).join("");
+        switch (tag) {
+          case "br": return "\n";
+          case "p": return kids().trim() + "\n\n";
+          case "strong": case "b": return `**${kids()}**`;
+          case "em": case "i": return `*${kids()}*`;
+          case "h1": return `# ${kids().trim()}\n\n`;
+          case "h2": return `## ${kids().trim()}\n\n`;
+          case "h3": return `### ${kids().trim()}\n\n`;
+          case "h4": case "h5": case "h6": return `#### ${kids().trim()}\n\n`;
+          case "a": {
+            const href = node.getAttribute("href") || "";
+            const text = kids().trim();
+            return href ? `[${text}](${href})` : text;
+          }
+          case "code": {
+            if (node.parentElement && node.parentElement.tagName.toLowerCase() === "pre") return kids();
+            return `\`${kids()}\``;
+          }
+          case "pre": {
+            const codeEl = node.querySelector("code");
+            const langMatch = codeEl?.className?.match(/language-(\S+)/);
+            const lang = langMatch ? langMatch[1] : "";
+            return `\`\`\`${lang}\n${(codeEl || node).textContent.replace(/\n$/, "")}\n\`\`\`\n\n`;
+          }
+          // Gemini-specific: code/ASCII diagrams can render inside this
+          // custom element instead of a plain <pre><code>.
+          case "code-block": {
+            const searchRoot = node.shadowRoot || node;
+            const codeEl = searchRoot.querySelector("code, pre") || node;
+            const lang = node.getAttribute("data-language") || node.getAttribute("language") ||
+              (codeEl.className && codeEl.className.match(/language-(\S+)/)?.[1]) || "";
+            const text = (codeEl.textContent || "").replace(/\n$/, "");
+            return `\`\`\`${lang}\n${text}\n\`\`\`\n\n`;
+          }
+          case "ul": return Array.from(childRoot.children).map((li) => `- ${walk(li).trim()}`).join("\n") + "\n\n";
+          case "ol": return Array.from(childRoot.children).map((li, i) => `${i + 1}. ${walk(li).trim()}`).join("\n") + "\n\n";
+          case "li": return kids();
+          case "blockquote": return kids().trim().split("\n").map((l) => `> ${l}`).join("\n") + "\n\n";
+          case "table": {
+            const rows = Array.from(node.querySelectorAll("tr")).map((tr) =>
+              Array.from(tr.children).map((cell) => walk(cell).trim().replace(/\|/g, "\\|"))
+            );
+            if (!rows.length) return "";
+            const header = `| ${rows[0].join(" | ")} |`;
+            const divider = `| ${rows[0].map(() => "---").join(" | ")} |`;
+            const body = rows.slice(1).map((r) => `| ${r.join(" | ")} |`).join("\n");
+            return `${header}\n${divider}\n${body}\n\n`;
+          }
+          default: return kids();
+        }
+      };
+      return walk(root).replace(/\n{3,}/g, "\n\n").trim();
+    };
+
+    const yamlStr = (v) => '"' + String(v ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+    const rawTitle = document.title.replace(/\s*-\s*Gemini\s*$/i, "").trim();
+    const title = rawTitle && rawTitle.toLowerCase() !== "gemini" ? rawTitle : "Gemini conversation";
+
+    let body = ["---", `title: ${yamlStr(title)}`, `agent: "Gemini"`, `exported: ${new Date().toISOString().slice(0, 10)}`, `source: ${yamlStr(window.location.href)}`, "---", ""].join("\n") + "\n";
+    let count = 0;
+
+    for (const el of allTurns) {
+      const isUser = el.tagName.toLowerCase() === "user-query";
+      const textContainer = el.querySelector(".message-content, .query-text, .markdown, [class*='markdown']") || el;
+      const text = isUser ? textContainer.textContent.trim() : htmlToMarkdown(textContainer);
+      if (!text) continue;
+      body += `# ${isUser ? "Human" : "Gemini"}\n\n${text}\n\n`;
+      count++;
+    }
+
+    if (!count) return { error: "Found conversation turn elements, but couldn't extract any text from them — Gemini's internal markup for message content has likely changed." };
+    return { title, markdown: body };
+  } catch (err) {
+    return { error: err.message || String(err) };
+  }
+}
+
+// NEW in v2.0.0 — UNVERIFIED against a live session, first draft only.
+//
+// Tries two independently-uncertain approaches so a wrong guess on one
+// doesn't sink the whole export: first the internal API (unconfirmed
+// endpoint/shape), then falls back to DOM scraping if that fails
+// (unconfirmed selectors, but backed by real evidence this time — see
+// below). Whichever path actually works, check the console output either
+// way to see what happened on the other.
+// NEW in v2.0.0 — UNVERIFIED against a live session, first draft only.
+//
+// Tries two independently-uncertain approaches so a wrong guess on one
+// doesn't sink the whole export: first the internal API (unconfirmed
+// endpoint/shape), then falls back to DOM scraping if that fails
+// (unconfirmed selectors, but backed by real evidence — see below).
+// Whichever path actually works, check the console output either way to
+// see what happened on the other.
+//
+// IMPORTANT: tryApi/tryDom are declared INSIDE this function on purpose.
+// scripting.executeScript only ships the one function passed to it into
+// the target page — separate top-level functions aren't visible from
+// inside the injected context, and calling one throws a ReferenceError
+// that never surfaces cleanly (an early version of this file had that
+// exact bug: DeepSeek's export failed instantly with no console output
+// at all, because the crash happened before any of this file's own
+// logging ever ran). Nested declarations avoid that; every exporter in
+// this file follows the same fully-self-contained rule for the same reason.
+async function exportDeepSeek() {
+  // Adapted from how similar open-source DeepSeek exporters describe the
+  // endpoint/auth — not confirmed against a real logged-in session.
+  async function tryApi() {
+    try {
+      const chatSessionId = window.location.pathname.split("/").filter(Boolean).pop();
+      if (!chatSessionId || chatSessionId.length < 8) {
+        return { error: "Couldn't read a conversation ID from the URL." };
+      }
+
+      let token = null;
+      try {
+        const raw = localStorage.getItem("userToken");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          token = parsed?.value || parsed?.token || (typeof parsed === "string" ? parsed : null);
+        }
+      } catch (e) {
+        // fall through — token stays null, handled below
+      }
+      if (!token) return { error: "no auth token found in localStorage under 'userToken'." };
+
+      const apiUrl = `https://chat.deepseek.com/api/v0/chat/history_messages?chat_session_id=${chatSessionId}`;
+      const res = await fetch(apiUrl, { credentials: "include", headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return { error: `API request failed (HTTP ${res.status}).` };
+      const data = await res.json();
+      console.log("[AIchat2MD] DeepSeek raw API response:", data);
+
+      const messages =
+        data?.data?.biz_data?.chat_messages || data?.data?.chat_messages ||
+        data?.biz_data?.chat_messages || data?.chat_messages || null;
+      if (!Array.isArray(messages)) return { error: "response wasn't in the expected shape (logged to console)." };
+      if (!messages.length) return { error: "no messages in API response." };
+
+      const yamlStr = (v) => '"' + String(v ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+      const rawTitle = document.title.replace(/\s*[-|]\s*DeepSeek.*$/i, "").trim();
+      const title = rawTitle && rawTitle.toLowerCase() !== "deepseek" ? rawTitle : "DeepSeek conversation";
+      let body = ["---", `title: ${yamlStr(title)}`, `agent: "DeepSeek"`, `exported: ${new Date().toISOString().slice(0, 10)}`, `source: ${yamlStr(window.location.href)}`, "---", ""].join("\n") + "\n";
+      let count = 0;
+
+      for (const m of messages) {
+        const role = m.role || m.author_role;
+        if (role !== "USER" && role !== "ASSISTANT" && role !== "user" && role !== "assistant") continue;
+        const text = (m.content || m.text || "").trim();
+        if (!text) continue;
+        body += `# ${/user/i.test(role) ? "Human" : "DeepSeek"}\n\n${text}\n\n`;
+        count++;
+      }
+      if (!count) return { error: "parsed API response but found no usable message text." };
+      return { title, markdown: body };
+    } catch (err) {
+      return { error: err.message || String(err) };
+    }
+  }
+
+  // DOM-scraping fallback. Two confirmed real details went into this (from
+  // an actual working DeepSeek export userscript's source, not model
+  // guesswork): DeepSeek strips UI chrome via "ds"-prefixed classes
+  // (ds-flex, ds-icon, ds-icon-button, ds-button) before reading message
+  // text, and there's a chain-of-thought "thinking" block distinct from the
+  // final "response" for reasoning models — the two get concatenated here
+  // rather than kept separate, a known simplification. Everything else
+  // (which selector actually IS a message container) is still a guess, so
+  // this sidesteps needing to know which class means "user" vs "assistant":
+  // it assumes strict alternation starting with the user, same as basically
+  // every non-group chat UI works, rather than trying to detect role from
+  // styling.
+  async function tryDom() {
+    try {
+      const originalScroll = window.scrollY;
+      window.scrollTo(0, 0);
+      await new Promise((r) => setTimeout(r, 300));
+      window.scrollTo(0, document.body.scrollHeight);
+      await new Promise((r) => setTimeout(r, 600));
+      window.scrollTo(0, originalScroll);
+      await new Promise((r) => setTimeout(r, 200));
+
+      let nodes = Array.from(document.querySelectorAll('[class*="message"]'));
+      if (!nodes.length) nodes = Array.from(document.querySelectorAll('[class*="chat"] [class*="content"], [class*="bubble"]'));
+      if (!nodes.length) {
+        return { error: "found 0 message-like elements with any fallback selector — inspect the live page for what actually wraps a message." };
+      }
+
+      const CHROME_SELECTOR = "button, .ds-flex, .ds-icon, .ds-icon-button, .ds-button, svg";
+      const cleanText = (el) => {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll(CHROME_SELECTOR).forEach((chrome) => chrome.remove());
+        return clone.textContent.replace(/\n{2,}/g, "\n").trim();
+      };
+
+      const yamlStr = (v) => '"' + String(v ?? "").replace(/\\/g, "\\\\").replace(/"/g, '\\"') + '"';
+      const rawTitle = document.title.replace(/\s*[-|]\s*DeepSeek.*$/i, "").trim();
+      const title = rawTitle && rawTitle.toLowerCase() !== "deepseek" ? rawTitle : "DeepSeek conversation";
+      let body = ["---", `title: ${yamlStr(title)}`, `agent: "DeepSeek"`, `exported: ${new Date().toISOString().slice(0, 10)}`, `source: ${yamlStr(window.location.href)}`, "---", ""].join("\n") + "\n";
+      let count = 0;
+      let nextIsUser = true; // conversations always open with the user
+
+      for (const node of nodes) {
+        const text = cleanText(node);
+        if (!text) continue;
+        body += `# ${nextIsUser ? "Human" : "DeepSeek"}\n\n${text}\n\n`;
+        nextIsUser = !nextIsUser;
+        count++;
+      }
+
+      if (!count) return { error: "found message-like elements but couldn't extract text from any of them." };
+      return { title, markdown: body };
+    } catch (err) {
+      return { error: err.message || String(err) };
+    }
+  }
+
+  const apiResult = await tryApi();
+  if (!apiResult.error) return apiResult;
+  console.warn("[AIchat2MD] DeepSeek API attempt failed, falling back to DOM scraping:", apiResult.error);
+  const domResult = await tryDom();
+  if (!domResult.error) return domResult;
+  return { error: `Both DeepSeek export methods failed. API: ${apiResult.error} | DOM: ${domResult.error}` };
 }
